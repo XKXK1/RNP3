@@ -12,6 +12,7 @@
 #include "Connection.h"
 #include <sys/time.h>
 #include "Sockets.h"
+#include <ctime>
 
 
 #define TRUE   1
@@ -19,11 +20,15 @@
 
 class Control{
 private:
+  void sendConMsg(int sock,uint32_t hashCode, uint16_t port, char name[]);
+
   Connection &connection;
   Sockets &socket1;
 
   std::thread peerThread;
   std::string userInput;
+
+  void generateHash();
 
   bool messaging;
 
@@ -36,7 +41,7 @@ private:
   /*
   getting Input for sending a Message
   */
-  void getInputForMessage(char name[]);
+  void getInputForMessage(uint32_t hashCode);
 
   /*
   finally send Message out to chosen socket

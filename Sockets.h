@@ -9,6 +9,7 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <sys/time.h>
 #include "Connection.h"
 
 
@@ -17,7 +18,8 @@
 
 class Sockets{
 private:
-
+  void prepareSynMsg(int index,uint32_t ip, uint16_t port, uint32_t hashCode, char name[]);
+  void sendConMsg(int sock,uint32_t hashCode, uint16_t port, char name[]);
   void handleMessageCON(int index);
   void handleMessageSYN(int index);
   void handleMessgageMSG(int index);
@@ -34,9 +36,13 @@ private:
   int max_sd,sd,valread,new_socket,activity;
   bool sdAlreadyListed = false;
 
+
   struct protocolMessage message;
+  struct timeval tv;
+
 
 public:
+  bool threadRunning = true;
   Connection &connection;
   Sockets(Connection  &connectIn);
   void programmThread();

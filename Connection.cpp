@@ -4,6 +4,12 @@
 Connection::Connection(){
 }
 
+Connection::~Connection(){
+  for(int i = 0; i < sockets.size();i++){
+    close(sockets[i].sd);
+  }
+}
+
 int Connection::connect_socket(int connect_port, char *address){
   std::cout << "You are connecting to port: "<< connect_port << " ip: " << address << std::endl;
   struct sockaddr_in addr;

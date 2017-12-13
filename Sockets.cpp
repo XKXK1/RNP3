@@ -4,6 +4,7 @@ Sockets::Sockets(Connection & connectIn): connection(connectIn){
 }
 
 void Sockets::setSD(){
+  connection.mut.lock();
   //add child sockets to set
   for (int i = 0 ; i < connection.sockets.size() ; i++){
     //socket descriptor
@@ -15,6 +16,16 @@ void Sockets::setSD(){
     if(sd > max_sd)
     max_sd = sd;
   }
+  connection.mut.unlock();
+}
+
+void Sockets::sendConMsg(int sock,uint32_t hashCode, uint16_t port, char name[]){
+  memset(&message, 0, sizeof(message));
+  message.hashCode = hashCode;
+  message.data.connections[0].port = port;
+  strcpy(message.data.name, name);
+  message.type = CON_TYPE;
+  int sendResult = send(sock,(char*)&message, sizeof(message), 0);
 }
 
 void Sockets::handleMessageCON(int index){
@@ -29,11 +40,12 @@ void Sockets::handleMessageCON(int index){
   //send SYN
   memset(&message, 0, sizeof(message));
   // nur gucken wer da ist
-  std::cout <<"Now connected to: " << std::endl;
   std::cout <<"-----------------------" << std::endl;
+  std::cout <<"Now connected to: " << std::endl;
   for(int i = 0; i < connection.sockets.size();i++){
-    std::cout << connection.sockets[i].name << std::endl;
+    std::cout << connection.sockets[i].name << " #"<<connection.sockets[i].hashCode << std::endl ;
   }
+  std::cout <<"-----------------------" << std::endl;
   // alle conncections durchgehen und adden falls nicht die eigene
   for(int i = 0; i < connection.sockets.size();i++){
     if(i > 0){
@@ -41,22 +53,22 @@ void Sockets::handleMessageCON(int index){
     }
     //eigene connection wird mit ip und port 0 gesendet nur wichitg fuer hash
     if((connection.sockets[i].port == connection.sockets[index].port) && (connection.sockets[i].ip == connection.sockets[index].ip)){
-      message.data.connections[i].port =0;
-      message.data.connections[i].ip = 0;
-      message.hashCode = connection.master.hashCode;
-      message.type = SYN_TYPE;
-      strcpy(message.data.name,connection.master.name);
+      prepareSynMsg(i,0,0,connection.master.hashCode,connection.master.name);
 
     } else {
       //std::cout << "writing into synlist port: " << connection.sockets[i].port << "and ip: " << connection.sockets[i].ip<<"at synlist index: "<<i <<std::endl;
-      message.data.connections[i].port =connection.sockets[i].port;
-      message.data.connections[i].ip = connection.sockets[i].ip;
-      message.hashCode = connection.master.hashCode;
-      message.type = SYN_TYPE;
-      strcpy(message.data.name,connection.master.name);
+      prepareSynMsg(i,connection.sockets[i].ip,connection.sockets[i].port,connection.master.hashCode,connection.master.name);
     }
   }
   int sendResult = send(sd,(char*)&message, sizeof(message), 0);
+}
+
+void Sockets::prepareSynMsg(int index,uint32_t ip, uint16_t port, uint32_t hashCode, char name[]){
+  message.data.connections[index].port =port;
+  message.data.connections[index].ip = ip;
+  message.hashCode =  hashCode;
+  message.type = SYN_TYPE;
+  strcpy(message.data.name,name);
 }
 
 void Sockets::handleMessageSYN(int index){
@@ -64,9 +76,8 @@ void Sockets::handleMessageSYN(int index){
   connection.sockets[index].hashCode = message.hashCode;
   //std::cout << "hashcode empfangen: " << message.hashCode << std::endl;
   strcpy(connection.sockets[index].name, message.data.name);
-  std::cout <<"Name of new Connection: " << message.data.name << std::endl;
+  std::cout <<"Name of new Connection: " << message.data.name << " #"<<message.hashCode<<  std::endl;
   //check if sockets are already in socketlist ip=ip port=port?
-
   for(int i = 0; i < 37; i++){
     //std::cout<< "synlist connection ip: "<<message.data.connections[i].ip << " port: "<<message.data.connections[i].port<< std::endl;
     for(int j = 0; j < connection.sockets.size(); j++){
@@ -98,13 +109,7 @@ void Sockets::handleMessageSYN(int index){
           newSocket.port = message.data.connections[i].port;
           connection.sockets.push_back(newSocket);
 
-          // my data for connected one
-          memset(&message, 0, sizeof(message));
-          message.data.connections[0].port = connection.master.port;
-          strcpy(message.data.name, nameOfConnection);
-          message.hashCode = connection.master.hashCode;
-          message.type = CON_TYPE;
-          int sendResult = send(testSd,(char*)&message, sizeof(message), 0);
+          sendConMsg(testSd,connection.master.hashCode,connection.master.port,nameOfConnection);
         }
       }
     }
@@ -116,17 +121,23 @@ void Sockets::handleMessageSYN(int index){
     }
     sdAlreadyListed = false;
   }
+
 }
 
 void Sockets::handleMessgageMSG(int index){
   //getpeername(sd , (struct sockaddr*)&connection.address , (socklen_t*)&connection.addrlen);
   //std::cout<<inet_ntoa(connection.address.sin_addr)<<" : "<< ntohs(connection.address.sin_port)<< ">> " << message.data.text << std::endl;
-  std::cout<<connection.sockets[index].name<<  ": " << message.data.text << std::endl;
+  std::cout<<connection.sockets[index].name<<  " #" << connection.sockets[index].hashCode<<" :" << message.data.text << std::endl;
 }
 
 void Sockets::programmThread(){
-  while(TRUE)
+  tv.tv_sec = 0;
+  tv.tv_usec = 200000;
+  while(threadRunning)
   {
+    if(!threadRunning){
+      return;
+    }
     //clear the socket set
     FD_ZERO(&readfds);
     //add master socket to set
@@ -134,7 +145,7 @@ void Sockets::programmThread(){
     max_sd = connection.master.sd;
     setSD();
     //wait for an activity on one of the sockets , timeout is NULL , so wait indefinitely
-    activity = select( max_sd + 1 , &readfds , NULL , NULL ,NULL);
+    activity = select( max_sd + 1 , &readfds , NULL , NULL ,&tv);
 
     if ((activity < 0) && (errno!=EINTR)){
       printf("select error");
@@ -153,10 +164,13 @@ void Sockets::programmThread(){
       newSocket.hashCode =connection.master.hashCode;
       newSocket.sd = new_socket;
       newSocket.ip = connection.address.sin_addr.s_addr;
+      connection.mut.lock();
       connection.sockets.push_back(newSocket);
+      connection.mut.unlock();
     }
 
     //else its some IO operation on some other socket :)
+    connection.mut.lock();
     for (int i = 0; i < connection.sockets.size(); i++){
 
       sd = connection.sockets[i].sd;
@@ -167,7 +181,8 @@ void Sockets::programmThread(){
         if ((valread = recv( sd ,(char*)&message, sizeof(message), 0)) <= 0){
           //Somebody disconnected , get his details and print
           getpeername(sd , (struct sockaddr*)&connection.address , (socklen_t*)&connection.addrlen);
-          printf("Host disconnected , ip %s , port %d, name %s \n" , inet_ntoa(connection.address.sin_addr) , ntohs(connection.address.sin_port),connection.sockets[i].name);
+          std::cout << "Disconnected: "<< connection.sockets[i].name<< " #" << connection.sockets[i].hashCode<<
+          " ip: "<< inet_ntoa(connection.address.sin_addr)<< " port: "<< ntohs(connection.address.sin_port) << std::endl;
           //Close the socket and mark as 0 in list for reuse
           close( sd );
           connection.sockets.erase(connection.sockets.begin() + i);
@@ -186,6 +201,7 @@ void Sockets::programmThread(){
         }
       }
     }
+    connection.mut.unlock();
+
   }
-  std::cout << "ending socketThread safely\n";
 }

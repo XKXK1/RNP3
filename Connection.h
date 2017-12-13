@@ -18,9 +18,15 @@
 #include <thread>
 #include <vector>
 
+#include <mutex>
+
 #define CON_TYPE 1
 #define SYN_TYPE 2
 #define MSG_TYPE 3
+
+#define TRUE   1
+#define FALSE  0
+
 
 struct ip_port_data{
   uint32_t ip;
@@ -54,9 +60,6 @@ struct clientSocket{
   int sd = -1;
 };
 
-#define TRUE   1
-#define FALSE  0
-
 class Connection{
 private:
 
@@ -73,7 +76,9 @@ private:
   void specifyMaxConMasterSocket();
 
 public:
+  std::mutex mut;
   Connection();
+  ~Connection();
   //information about master
   struct clientSocket master;
   //holds all other sockets
